@@ -1,6 +1,28 @@
+using Microsoft.EntityFrameworkCore;
+using ProductCatalogRedis.Caching;
+using ProductCatalogRedis.Data;
+using ProductCatalogRedis.Services.Contracts;
+using ProductCatalogRedis.Services.Implementations;
+using StackExchange.Redis;
+using System;
+
 var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
+
+
+var sqlConn = builder.Configuration.GetConnectionString("DefaultConnection");
+var redisConn = builder.Configuration.GetConnectionString("Redis")!;
+builder.Services.Configure<CacheSettings>(
+    builder.Configuration.GetSection("CacheSettings"));
+builder.Services.AddDbContextPool<ProductContext>(opt =>
+    opt.UseSqlServer(sqlConn));
+
+builder.Services.AddSingleton<IConnectionMultiplexer>(
+    _ => ConnectionMultiplexer.Connect(redisConn));
+builder.Services.AddSingleton<IRedisService, RedisService>();
+
+builder.Services.AddScoped<IProductService, ProductService>();
 
 builder.Services.AddControllers();
 // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
