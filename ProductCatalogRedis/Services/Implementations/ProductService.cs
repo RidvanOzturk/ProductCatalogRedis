@@ -1,49 +1,66 @@
-﻿using Microsoft.EntityFrameworkCore;
+﻿// Services/Implementations/ProductService.cs
+using System.Text.Json;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Distributed;
 using Microsoft.Extensions.Options;
 using ProductCatalogRedis.Caching;
 using ProductCatalogRedis.Data;
 using ProductCatalogRedis.Models;
 using ProductCatalogRedis.Services.Contracts;
-using System.Text.Json;
 
 namespace ProductCatalogRedis.Services.Implementations;
 
-public class ProductService(ProductContext productContext, IRedisService redisService, IOptions<CacheSettings> options) : IProductService
+public class ProductService(IDistributedCache cache, ProductContext context, IOptions<CacheSettings> options) : IProductService
 {
-    private const string ProductCacheKeyTemplate = "product-id-{0}";
-
-
+    private readonly TimeSpan _cacheDuration = options.Value.ProductCacheDuration;
+    private const string KeyTemplate = "product-id-{0}";
 
     public async Task<IEnumerable<ProductResponseModel>> GetAllAsync()
-    {
-        return await productContext.Products
-            .AsNoTracking()
-            .Select(p => new ProductResponseModel(p.Id, p.Name, p.Description, p.Price))
-            .ToListAsync();
-    }
+        => await context.Products
+                   .AsNoTracking()
+                   .Select(p => new ProductResponseModel(p.Id, p.Name, p.Description, p.Price))
+                   .ToListAsync();
 
     public async Task<ProductResponseModel> GetByIdAsync(int id)
     {
-        var key = string.Format(ProductCacheKeyTemplate, id);
-        TimeSpan cacheDuration = options.Value.ProductCacheDuration;
-          var cached = await redisService.Db.StringGetAsync(key);
-        if (cached.HasValue)
-        {
-            return JsonSerializer.Deserialize<ProductResponseModel>(cached)!;
-        }
+        var key = string.Format(KeyTemplate, id);
+        var json = await cache.GetStringAsync(key);
+        if (json is not null)
+            return JsonSerializer.Deserialize<ProductResponseModel>(json)!;
 
-        var entity = await productContext.Products
-            .AsNoTracking()
-            .FirstOrDefaultAsync(p => p.Id == id);
+        var e = await context.Products
+                        .AsNoTracking()
+                        .FirstOrDefaultAsync(p => p.Id == id);
 
-        var model = new ProductResponseModel(entity.Id, entity.Name, entity.Description, entity.Price);
+        var model = new ProductResponseModel(e.Id, e.Name, e.Description, e.Price);
 
-        await redisService.Db.StringSetAsync(
-            key,
+        await cache.SetStringAsync(key,
             JsonSerializer.Serialize(model),
-            cacheDuration
-        );
+            new DistributedCacheEntryOptions
+            {
+                AbsoluteExpirationRelativeToNow = _cacheDuration
+            });
 
         return model;
+    }
+
+    public async Task<ProductResponseModel> UpdateAsync(int id, ProductResponseModel update)
+    {
+        var entity = await context.Products.FindAsync(id);
+        entity.Name = update.Name;
+        entity.Description = update.Description;
+        entity.Price = update.Price;
+        await context.SaveChangesAsync();
+        await cache.RemoveAsync(string.Format(KeyTemplate, id));
+
+        return update;
+    }
+
+    public async Task DeleteAsync(int id)
+    {
+        var entity = await context.Products.FindAsync(id);
+        context.Products.Remove(entity);
+        await context.SaveChangesAsync();
+        await cache.RemoveAsync(string.Format(KeyTemplate, id));
     }
 }

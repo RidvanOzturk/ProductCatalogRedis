@@ -9,17 +9,36 @@ namespace ProductCatalogRedis.Controllers;
 public class ProductController(IProductService productService) : ControllerBase
 {
     [HttpGet]
-    public async Task<ActionResult<IEnumerable<ProductResponseModel>>> GetAll()
-    {
-        var list = await productService.GetAllAsync();
-        return Ok(list);
-    }
+    public async Task<IEnumerable<ProductResponseModel>> GetAll()
+        => await productService.GetAllAsync();
 
     [HttpGet("{id}")]
     public async Task<ActionResult<ProductResponseModel>> Get(int id)
     {
-        var dto = await productService.GetByIdAsync(id);
-        return Ok(dto);
+        var product = await productService.GetByIdAsync(id);
+        if (product == null)
+        {
+            return NotFound();
+        }
+        return Ok(product);
 
+    }
+
+    [HttpPut("{id}")]
+    public async Task<IActionResult> Put(int id, ProductResponseModel body)
+    {
+        var product = await productService.UpdateAsync(id, body);
+        if (product == null)
+        {
+            return BadRequest();
+        }
+        return Ok(product);
+    }
+
+    [HttpDelete("{id}")]
+    public async Task<IActionResult> Delete(int id)
+    {
+        await productService.DeleteAsync(id);
+        return NoContent();
     }
 }

@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using ProductCatalogRedis.Caching;
 using ProductCatalogRedis.Data;
 using ProductCatalogRedis.Services.Contracts;
@@ -18,9 +19,10 @@ builder.Services.Configure<CacheSettings>(
 builder.Services.AddDbContextPool<ProductContext>(opt =>
     opt.UseSqlServer(sqlConn));
 
-builder.Services.AddSingleton<IConnectionMultiplexer>(
-    _ => ConnectionMultiplexer.Connect(redisConn));
-builder.Services.AddSingleton<IRedisService, RedisService>();
+builder.Services.AddStackExchangeRedisCache(opts => {
+    opts.Configuration = builder.Configuration.GetConnectionString("Redis");
+    opts.InstanceName = "productcache:";
+});
 
 builder.Services.AddScoped<IProductService, ProductService>();
 
